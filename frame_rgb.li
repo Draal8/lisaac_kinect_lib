@@ -1,0 +1,28 @@
+Section Header
+  + name := FRAME_RGB;
+
+Section Inherit
+  + parent_object :OBJECT := OBJECT;
+  + parent_frame :Expanded FRAME;
+
+Section Public
+  - data :NATIVE_ARRAY UINTEGER_8;
+  
+  + init <-
+  (
+    type := 1;
+    format := `rgb->format`:UINTEGER_8;
+    width := `rgb->with`:INTEGER;
+    height := `rgb->height`:INTEGER;
+    bytes_per_pixel := `rgb->bytes_per_pixel`:INTEGER;
+    timestamp := `rgb->timestamp`:INTEGER_32;
+    sequence := `rgb->sequence`:INTEGER_32;
+    exposure := `rgb->exposure`:REAL;
+    gain := `rgb->gain`:REAL;
+    gamma := `rgb->gamma`:REAL;
+    status := `rgb->status`:INTEGER_32;
+  );
+  
+  + refresh frame:FRAME <- ( data := `rgb->data`:NATIVE_ARRAY UINTEGER_8; );
+  
+  + get_type :STRING <- ( "colour" );
