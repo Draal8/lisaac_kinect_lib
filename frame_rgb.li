@@ -12,7 +12,7 @@ Section Public
   (
     type := 1;
     format := `rgb->format`:UINTEGER_8;
-    width := `rgb->with`:INTEGER;
+    width := `rgb->width`:INTEGER;
     height := `rgb->height`:INTEGER;
     bytes_per_pixel := `rgb->bytes_per_pixel`:INTEGER;
     timestamp := `rgb->timestamp`:INTEGER_32;
@@ -23,6 +23,37 @@ Section Public
     status := `rgb->status`:INTEGER_32;
   );
   
-  + refresh frame:FRAME <- ( data := `rgb->data`:NATIVE_ARRAY UINTEGER_8; );
+  + refresh <- ( data := `rgb->data`:NATIVE_ARRAY UINTEGER_8; );
   
-  + get_type :STRING <- ( "colour" );
+  + print <-
+  (
+    (type = 0).if {
+      "frame is not initialized";
+    } else {
+      + to_write :STRING_BUFFER;
+      to_write := STRING_BUFFER.create 4096;
+      to_write.append (get_type);
+      to_write.append " frame\nheight : ";
+      to_write.append (height.to_string);
+      to_write.append " width : ";
+      to_write.append (width.to_string);
+      to_write.println;
+      0.to (bytes_per_pixel * height * width) do { i:INTEGER;
+        (i%4 = 3).if {
+          to_write.append(data.item (i-1).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-2).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-3).to_string);
+          to_write.append " ";
+        };
+        (i%1024 = 1023 || i = (bytes_per_pixel * height * width - 1)).if {
+          to_write.print;
+          to_write.clear;
+        };
+      };
+    };
+  );
+    
+  
+  + get_type :STRING <- ( "Colour" );

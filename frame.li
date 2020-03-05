@@ -24,7 +24,8 @@ Section Public
   - status :UINTEGER_32;      ///< zero if ok; non-zero for errors.
   
   + init <- deferred;
-  + refresh frame:FRAME <- deferred;
+  + refresh <- deferred;
+  + print <- deferred;
   
   + rawdata_give :NATIVE_ARRAY UINTEGER_8 <- ( rawdata );
   

@@ -15,7 +15,7 @@ libfreenect2::Freenect2 freenect2;
 libfreenect2::Freenect2Device *dev = 0;
 libfreenect2::PacketPipeline *pipeline = 0;
 
-libfreenect2::SyncMultiFrameListener listener(1);   //enum Type { Color = 1, Ir = 2, Depth = 4 }
+libfreenect2::SyncMultiFrameListener listener(7);   //enum Type { Color = 1, Ir = 2, Depth = 4 }
 libfreenect2::FrameMap frames;
 
 libfreenect2::Registration* registration;
@@ -30,8 +30,9 @@ Section Private
   - framecount:UINTEGER;
   - framemax:UINTEGER;
   - protonect_shutdown:BOOLEAN;
-  - enable_rgb:BOOLEAN := TRUE;
+  - enable_rgb:BOOLEAN;
   - enable_depth:BOOLEAN;
+  - frame:INTEGER := -1;
   
   - draw_mouse p:PEN <- //essential otherwise we won't have the video
   ( + t:TOUCH;
@@ -46,22 +47,24 @@ Section Private
     };
   );
   
-  - frame:INTEGER := -1;
-  
 Section Public
-  - draw pen:PEN to (x,y:REAL_32) <- (deferred;);
-  
+  - draw pen:PEN to (x,y:REAL_32) <- ( "'draw to' function not defined\n".print; );
   - draw pen:PEN <- ( draw pen to (0,0); );
-  
   - update <- ( PEN.update_image frame id image; );
   
-  - init_kinect <-
+  - init_kinect type:INTEGER <-
   ( + serial:NATIVE_ARRAY CHARACTER;
-    + rgb,depth:BOOLEAN;
     serial := serial_number;
-    rgb := enable_rgb;
-    depth := enable_depth;
-    `
+    
+    (type & 1 = 1).if {
+      enable_rgb := TRUE;
+    };
+    (type & 2 = 2).if {
+      enable_depth := TRUE;
+    };
+    (type & 4 = 4).if {
+      enable_depth := TRUE;
+    };` 
 #ifdef LIBFREENECT2_WITH_OPENGL_SUPPORT
     if(!pipeline)
       pipeline = new libfreenect2::OpenGLPacketPipeline();
@@ -88,8 +91,14 @@ Section Public
 
     dev->setColorFrameListener(&listener);
     dev->setIrAndDepthFrameListener(&listener);
-    
-    if (@rgb && @depth) {
+    `;
+  );
+  
+  - start_kinect <-
+  ( + rgb,depth:BOOLEAN;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    `if (@rgb && @depth) {
       if (!dev->start())
       return -1;
     } else {
@@ -103,6 +112,12 @@ Section Public
     registration = new libfreenect2::Registration(dev->getIrCameraParams(), dev->getColorCameraParams());
     libfreenect2::Frame undistorted(512, 424, 4), registered(512, 424, 4);
     `;
+  );
+  
+  - shut_kinect <-
+  ( `dev->stop();
+    dev->close();
+    delete registration;`
   );
   
   - init_frames <-
@@ -128,24 +143,20 @@ Section Public
       p.free;
     };
   );
-  
-  + stream_it <-
+      
+  + stream_it type:INTEGER <-
   ( + serial :NATIVE_ARRAY CHARACTER;
     + pen :PEN;
-    + rgb, depth :BOOLEAN;
     PAPER.make (1366,768) title "Test Img";
     PAPER.set_animation 1;
     pen := PAPER.loc_pen;
     serial := "138898540347".to_external;
-    rgb := enable_rgb;
-    depth := enable_depth;
     
-    draw to <- //changing the function 'draw to'
+    draw to <- //Définition de 'draw to'
     ( + size:INTEGER;
       + rgb, depth :BOOLEAN;
       rgb := enable_rgb;
       depth := enable_depth;
-      
       ((framemax = 0) | (framecount < framemax)).if {
         `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
           "timeout!".print;
@@ -160,70 +171,68 @@ Section Public
           };
         };
         framecount := framecount + 1;
-        `listener.release(frames)`;
-        } else {`
-        dev->stop();
-        dev->close();
-        delete registration;
-        }`
+        `listener.release(frames);`
+      } else {
+        shut_kinect;
       };
       size := 1280;
       use_pen pen to (x,y) size size;
-    ); //END draw to
+    ); //FIN 'draw to'
     
-    init_kinect;
-    PAPER.run Self; //calling draw function basically
+    init_kinect type;
+    start_kinect;
+    PAPER.run Self;
   );
   
-  + picture_it <-
-  (
-    + serial :NATIVE_ARRAY CHARACTER;
-    + data :NATIVE_ARRAY UINTEGER_8;
+  + picture_it type:INTEGER <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
     + viewer_enabled :BOOLEAN;
-    + rgb :BOOLEAN;
-    + depth :BOOLEAN;
+    +  rgb, depth :BOOLEAN;
     serial := "138898540347".to_external;
     viewer_enabled := TRUE;
-    rgb := TRUE;
-    depth := FALSE;
-    
-    init_kinect;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    init_kinect type;
+    start_kinect;
     `
-    size_t framecount = 0;
     if (!listener.waitForNewFrame(frames, 1*1000)) { //1 second has passed`;
       "timeout!".print;
       `return -1;
     }`;
-    
     init_frames;
     
     `if (@rgb && @depth) {
       registration->apply(rgb, depth, &undistorted, &registered);
-    }`;
-    data := `rgb->data`:NATIVE_ARRAY UINTEGER_8;
-    `listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
-    dev->stop();
-    dev->close();
-    delete registration`;
-    
-    img_write data;
+    }
+    listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
+    listener.waitForNewFrame(frames, 100)`;
+    shut_kinect;
+    img_write type;
   );
   
-  + img_write data:NATIVE_ARRAY UINTEGER_8 <-
-  (
-    + dir:DIRECTORY;
+  + img_rgb_write data:NATIVE_ARRAY UINTEGER_8 to path:STRING <-
+  ( + dir:DIRECTORY;
     + f:FILE;
     dir := FILE_SYSTEM;
-    f := dir.make_file "./picture.ppm";
+    f := dir.make_file path;
     (f = NULL).if {
       "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
     } else {
-      //+ to_write:NATIVE_ARRAY UINTEGER_8 := to_write.create 20;
       + to_write :STRING_BUFFER;
-      to_write := STRING_BUFFER.create 70;
+      + height, width, bytes_per_pixel :INTEGER;
+      to_write := STRING_BUFFER.create 4096;
+      height := 1080;
+      width := 1920;
+      bytes_per_pixel := 4;
+      to_write.append "P3\n";
       f.open;
-      f.write ("P3\n1920 1080\n255\n".to_string_buffer) size 17;
-      0.to (4*1920*1080) do { i:INTEGER;
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      to_write.append "\n255\n";
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      0.to (4*height*width) do { i:INTEGER;
         (i%4 = 3).if {
           to_write.append(data.item (i-1).to_string);
           to_write.append " ";
@@ -233,17 +242,95 @@ Section Public
         };
         (i%20 = 19).if {
           to_write.append "\n";
-          f.write to_write size (to_write.upper);
+          f.write to_write size (to_write.upper+1);
           to_write.clear;
         } else {
           to_write.append " ";
         };
       };
-      f.close;
+    };
+  );
+  
+  + img_ir_write data:NATIVE_ARRAY REAL_32 to path:STRING <-
+  ( + dir:DIRECTORY;
+    + f:FILE;
+    dir := FILE_SYSTEM;
+    f := dir.make_file path;
+    (f = NULL).if {
+      "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
+    } else {
+      + to_write :STRING_BUFFER;
+      + height, width, bytes_per_pixel :INTEGER;
+      + max:REAL_32;
+      to_write := STRING_BUFFER.create 4096;
+      height := 424;
+      width := 512;
+      bytes_per_pixel := 4;
+      to_write.clear;
+      f.open;
+      to_write.append "P2\n";
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      //Des fois J'ai une segfault ici
+      0.to (height*width) do { i:INTEGER;
+        (data.item i > max).if {
+          max := data.item i;
+        };
+      };
+      //
+      ((max.floor) > 65535).if {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      }.elseif { max.floor < 0 } then {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      } else {
+        "max : ".println;
+        max.floor.println;
+        to_write.append "\n";
+        to_write.append (max.floor.to_string);
+        to_write.append "\n";
+      };
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      0.to (height*width) do { i:INTEGER;
+        ((data.item i).round < 0).if {
+          to_write.append "0";
+        } else {
+          to_write.append((data.item i).round.to_string);
+        };
+        (i%11 = 10).if {
+          f.write to_write size (to_write.upper+1);
+          to_write.clear;
+          to_write.append "\n";
+        } else {
+          to_write.append " ";
+        };
+      };
+      to_write.clear;
+    };
+  );
+  
+  + img_write type:INTEGER <- ///< enum Type {Color = 1, Ir = 2, Depth = 4}
+  (
+    (type & 1 = 1).if {
+      "Creating rgb image\n".print;
+      img_rgb_write `rgb->data`:NATIVE_ARRAY UINTEGER_8 to "color_pic.ppm";
+    };
+    (type & 2 = 2).if {
+      "Creating infrared image\n".print;
+      img_ir_write `ir->data`:NATIVE_ARRAY REAL_32 to "ir_pic.pgm";
+    };
+    (type & 4 = 4).if {
+      "Creating depth image\n".print;
+      img_ir_write `depth->data`:NATIVE_ARRAY REAL_32 to "depht_pic.pgm";
     };
   );
   
   + main <-
   (
-    picture_it;
+    picture_it 7;
   );
