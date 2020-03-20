@@ -48,6 +48,7 @@ Section Private
   );
   
 Section Public
+  //- stream_data:NATIVE_ARRAY UINTEGER_8;
   - draw pen:PEN to (x,y:REAL_32) <- ( "'draw to' function not defined\n".print; );
   - draw pen:PEN <- ( draw pen to (0,0); );
   - update <- ( PEN.update_image frame id image; );
@@ -98,12 +99,11 @@ Section Public
   ( + rgb,depth:BOOLEAN;
     rgb := enable_rgb;
     depth := enable_depth;
-    `if (@rgb && @depth) {
+    `if (@rgb || @depth) {
       if (!dev->start())
       return -1;
     } else {
-      if (!dev->startStreams(@rgb, @depth))
-      return -1;
+      printf("All frame streams disabled !\n");
     }
     
     std::cout << "device serial: " << dev->getSerialNumber() << std::endl;
@@ -143,7 +143,15 @@ Section Public
       p.free;
     };
   );
-      
+  
+  + load_to_pen pen:PEN <- (
+    (frame = -1).if {
+      frame := pen.create_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) size (1920,1080) flags 0;
+    } else {
+      PEN.update_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) id frame;
+    };
+  );
+  
   + stream_it type:INTEGER <-
   ( + serial :NATIVE_ARRAY CHARACTER;
     + pen :PEN;
@@ -152,6 +160,16 @@ Section Public
     pen := PAPER.loc_pen;
     serial := "138898540347".to_external;
     
+    ir_depth_behavior_swap type;
+    streaming_draw_init;
+    
+    init_kinect type;
+    start_kinect;
+    PAPER.run Self;
+  );
+  
+  + streaming_draw_init <-
+  (
     draw to <- //Définition de 'draw to'
     ( + size:INTEGER;
       + rgb, depth :BOOLEAN;
@@ -163,13 +181,7 @@ Section Public
           `return -1;
         }`;
         init_frames;
-        rgb.if {
-          (frame = -1).if {
-            frame := pen.create_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) size (1920,1080) flags 0;
-          } else {
-            PEN.update_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) id frame;
-          };
-        };
+        load_to_pen pen;
         framecount := framecount + 1;
         `listener.release(frames);`
       } else {
@@ -178,10 +190,63 @@ Section Public
       size := 1280;
       use_pen pen to (x,y) size size;
     ); //FIN 'draw to'
-    
-    init_kinect type;
-    start_kinect;
-    PAPER.run Self;
+  );
+  
+  + ir_depth_behavior_swap type:INTEGER <-
+  (
+    (type = 4).if {
+      
+      load_to_pen <- ( //definition de 'load_frame_to_pen'
+        + frame_data:NATIVE_ARRAY UINTEGER_8;
+        + native_data:NATIVE_ARRAY REAL_32;
+        + temp:REAL_32;
+        + temp_8:UINTEGER_8;
+        frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
+        native_data := `depth->data`:NATIVE_ARRAY REAL_32;
+        0.to (217088) do { i:INTEGER;
+          temp := native_data.item i;
+          temp_8 := (temp.floor) >> 4;
+          //temp_8.print;
+          //" ".print;
+          frame_data.put temp_8 to (i*4);
+          frame_data.put temp_8 to (i*4+1);
+          frame_data.put temp_8 to (i*4+2);
+          frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
+        };
+        (frame = -1).if {
+          frame := pen.create_image_bgra (frame_data) size (512,424) flags 0;
+        } else {
+          PEN.update_image_bgra (frame_data) id frame;
+        };
+      ); //FIN definition de 'load_frame_to_pen'
+      
+    }.elseif {type = 2} then {
+      
+      load_to_pen <- ( //definition de 'load_frame_to_pen'
+        + frame_data:NATIVE_ARRAY UINTEGER_8;
+        + native_data:NATIVE_ARRAY REAL_32;
+        + temp:REAL_32;
+        + temp_8:UINTEGER_8;
+        frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
+        native_data := `ir->data`:NATIVE_ARRAY REAL_32;
+        0.to (217088) do { i:INTEGER;
+          temp := native_data.item i;
+          temp_8 := (temp.floor) >> 4;
+          //temp_8.print;
+          //" ".print;
+          frame_data.put temp_8 to (i*4);
+          frame_data.put temp_8 to (i*4+1);
+          frame_data.put temp_8 to (i*4+2);
+          frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
+        };
+        (frame = -1).if {
+          frame := pen.create_image_bgra (frame_data) size (512,424) flags 0;
+        } else {
+          PEN.update_image_bgra (frame_data) id frame;
+        };
+      ); //FIN definition de 'load_frame_to_pen'
+      
+    };
   );
   
   + picture_it type:INTEGER <-
@@ -327,10 +392,10 @@ Section Public
     (type & 4 = 4).if {
       "Creating depth image\n".print;
       img_ir_write `depth->data`:NATIVE_ARRAY REAL_32 to "depht_pic.pgm";
-    };
+     };
   );
   
   + main <-
   (
-    picture_it 7;
+    stream_it 2;
   );
