@@ -48,7 +48,6 @@ Section Private
   );
   
 Section Public
-  //- stream_data:NATIVE_ARRAY UINTEGER_8;
   - draw pen:PEN to (x,y:REAL_32) <- ( "'draw to' function not defined\n".print; );
   - draw pen:PEN <- ( draw pen to (0,0); );
   - update <- ( PEN.update_image frame id image; );
@@ -121,8 +120,7 @@ Section Public
   );
   
   - init_frames <-
-  (`
-    libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
+  (`libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
     libfreenect2::Frame *ir = frames[libfreenect2::Frame::Ir];
     libfreenect2::Frame *depth = frames[libfreenect2::Frame::Depth]`;
   );
@@ -161,35 +159,57 @@ Section Public
     serial := "138898540347".to_external;
     
     ir_depth_behavior_swap type;
-    streaming_draw_init;
+    streaming_draw_init type;
     
     init_kinect type;
     start_kinect;
     PAPER.run Self;
   );
   
-  + streaming_draw_init <-
+  + streaming_draw_init type:INTEGER <-
   (
-    draw to <- //Définition de 'draw to'
-    ( + size:INTEGER;
-      + rgb, depth :BOOLEAN;
-      rgb := enable_rgb;
-      depth := enable_depth;
-      ((framemax = 0) | (framecount < framemax)).if {
-        `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+    (type & 1 = 1).if {
+      
+      draw to <- //Définition de 'draw to'
+      ( + rgb, depth :BOOLEAN;
+        rgb := enable_rgb;
+        depth := enable_depth;
+        ((framemax = 0) | (framecount < framemax)).if {
+          `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
           "timeout!".print;
           `return -1;
-        }`;
-        init_frames;
-        load_to_pen pen;
-        framecount := framecount + 1;
-        `listener.release(frames);`
-      } else {
-        shut_kinect;
-      };
-      size := 1280;
-      use_pen pen to (x,y) size size;
-    ); //FIN 'draw to'
+          }`;
+          init_frames;
+          load_to_pen pen;
+          framecount := framecount + 1;
+          `listener.release(frames);`
+        } else {
+          shut_kinect;
+        };
+        use_pen pen to (x,y) size 1280;
+      ); //FIN 'draw to'
+      
+    } else {
+      
+      draw to <- //Définition de 'draw to'
+      ( + rgb, depth :BOOLEAN;
+        rgb := enable_rgb;
+        depth := enable_depth;
+        ((framemax = 0) | (framecount < framemax)).if {
+          `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+          "timeout!".print;
+          `return -1;
+          }`;
+          init_frames;
+          load_to_pen pen;
+          framecount := framecount + 1;
+          `listener.release(frames);`
+        } else {
+          shut_kinect;
+        };
+        use_pen pen to (x,y) size 512;
+      ); //FIN 'draw to'
+    };
   );
   
   + ir_depth_behavior_swap type:INTEGER <-
@@ -397,5 +417,5 @@ Section Public
   
   + main <-
   (
-    stream_it 2;
+    stream_it 4;
   );
