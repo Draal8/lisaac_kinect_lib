@@ -4,3 +4,5 @@ The project make use of the library libfreenect2 (https://github.com/OpenKinect/
 This project is in development.
 
 to compile the project : lisaac kinect.li -cpp -gcc "-lfreenect2"
+
+DOI of libfreenect2 : [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.50641.svg)](https://doi.org/10.5281/zenodo.50641)
