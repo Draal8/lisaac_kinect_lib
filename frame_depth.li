@@ -1,0 +1,165 @@
+Section Header
+  + name := FRAME_DEPTH;
+  
+Section Inherit
+  + parent_frame:Expanded FRAME;
+  
+Section Public
+  
+  + behavior_swap <- (
+  /*(type = 2).if {
+    load_to_pen <- (
+        load_sobel pen;
+      );
+      
+    }.elseif {type = 1} then {*/
+      load_to_pen <- (
+        load_classique pen;
+      );
+    //}
+  );
+
+  + load_sobel pen:PEN <- (
+    + frame_data:NATIVE_ARRAY UINTEGER_8;
+    + native_data, final_array:NATIVE_ARRAY REAL_32;
+    + temp:REAL_32;
+    + temp_8:UINTEGER_8;
+    frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
+    native_data := `depth->data`:NATIVE_ARRAY REAL_32;
+    0.to (217088) do { i:INTEGER;
+      temp := native_data.item i;
+      temp_8 := (temp.floor) >> 4;
+      //temp_8.print;
+      //" ".print;
+      frame_data.put temp_8 to (i*4);
+      frame_data.put temp_8 to (i*4+1);
+      frame_data.put temp_8 to (i*4+2);
+      frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
+    };
+    final_array := sobel frame_data;
+    final_array := seuillage_hysteresis final_array;
+    (frame = -1).if {
+      frame := pen.create_image_bgra (final_array) size (512,424) flags 0;
+    } else {
+      PEN.update_image_bgra (final_array) id frame;
+    };
+  );
+
+  + load_classique pen:PEN <- (
+	+ frame_data:NATIVE_ARRAY UINTEGER_8;
+    + native_data:NATIVE_ARRAY REAL_32;
+    + temp:REAL_32;
+    + temp_8:UINTEGER_8;
+    frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
+    native_data := `depth->data`:NATIVE_ARRAY REAL_32;
+    0.to (217088) do { i:INTEGER;
+      temp := native_data.item i;
+      temp_8 := (temp.floor) >> 4;
+      //temp_8.print;
+      //" ".print;
+      frame_data.put temp_8 to (i*4);
+      frame_data.put temp_8 to (i*4+1);
+      frame_data.put temp_8 to (i*4+2);
+      frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
+    };
+    (frame_img = -1).if {
+      frame_img := pen.create_image_bgra (frame_data) size (512,424) flags 0;
+    } else {
+      PEN.update_image_bgra (frame_data) id frame_img;
+    };
+  );
+  
+  
+
+  + img_write <- (
+  	img_write `depth->data`:NATIVE_ARRAY REAL_32 to "depth_pic.pgm";
+  );
+
+Section Private
+
+  - img_write data:NATIVE_ARRAY REAL_32 to path:STRING <-
+  ( + dir:DIRECTORY;
+    + f:FILE;
+    dir := FILE_SYSTEM;
+    f := dir.make_file path;
+    (f = NULL).if {
+      "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
+    } else {
+      + to_write :STRING_BUFFER;
+      + height, width, bytes_per_pixel :INTEGER;
+      + max:REAL_32;
+      to_write := STRING_BUFFER.create 4096;
+      height := 424;
+      width := 512;
+      bytes_per_pixel := 4;
+      to_write.clear;
+      f.open;
+      to_write.append "P2\n";
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      //Des fois J'ai une segfault ici
+      0.to (height*width) do { i:INTEGER;
+        (data.item i > max).if {
+          max := data.item i;
+        };
+      };
+      //
+      ((max.floor) > 65535).if {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      }.elseif { max.floor < 0 } then {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      } else {
+        "max : ".println;
+        max.floor.println;
+        to_write.append "\n";
+        to_write.append (max.floor.to_string);
+        to_write.append "\n";
+      };
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      0.to (height*width) do { i:INTEGER;
+        ((data.item i).round < 0).if {
+          to_write.append "0";
+        } else {
+          to_write.append((data.item i).round.to_string);
+        };
+        (i%11 = 10).if {
+          f.write to_write size (to_write.upper+1);
+          to_write.clear;
+          to_write.append "\n";
+        } else {
+          to_write.append " ";
+        };
+      };
+      to_write.clear;
+    };
+  );
+  
+  // (-1  0  1)      (-1  -2  -1)
+  // (-2  0  2)  et  ( 0   0   0)
+  // (-1  0  1)      ( 1   2   1)
+  + sobel data:NATIVE_ARRAY UINTEGER_32 :NATIVE_ARRAY UINTEGER_32 <-
+  ( + new_array:NATIVE_ARRAY UINTEGER_32;
+    + gx,gy:INTEGER;
+    new_array := NATIVE_ARRAY UINTEGER_32.create (512*424);
+    0.to (512*424) do { i:INTEGER;
+      + racine:INTEGER;
+      ((i > 512) & (i % 512 != 0) & (i % 512 != 511) & (i < 512*423)).if {
+        gx := data.item (i-513) + (data.item (i-1) << 1) + data.item (i+511);
+        gx := 1 + data.item (i-511) + (data.item (i+1) << 1) + data.item (i+513) - gx;
+        gy := data.item (i-513) + (data.item (i-512) << 1) + data.item (i-511);
+        gy := 1 + data.item (i+513) + (data.item (i+512) << 1) + data.item (i+511) - gy;
+        racine := ((gx*gx + gy*gy).sqrt);
+        new_array.put racine to i;
+      } else {
+        new_array.put (data.item i) to i;
+      };
+    };
+    new_array
+  );
+

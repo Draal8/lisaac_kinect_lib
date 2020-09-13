@@ -1,0 +1,110 @@
+Section Header
+  + name := SCREEN;
+  
+Section Inherit
+  - parent_object:OBJECT := OBJECT;
+  
+Section SCREEN
+  - frame_object:FRAME;
+  
+Section Private
+  - framecount:UINTEGER;
+  - framemax:UINTEGER;
+  - enable_rgb:BOOLEAN;
+  - enable_depth:BOOLEAN;
+  - frame_img:INTEGER := -1;
+  
+  - draw pen:PEN to (x,y:REAL_32) <- ( "'draw to' function not defined\n".print; );
+  - update <- ( PEN.update_image frame_img id image; );
+  
+  - draw_mouse p:PEN <- //essential otherwise we won't have the video
+  ( + t:TOUCH;
+    p.begin_path;    
+    (p.touch.lower).to (p.touch.upper) do { i:INTEGER;
+      t := p.touch.item i;      
+      (t.is_pressed).if {                
+        p.circle (t.x,t.y) radius 100;
+        p.stroke_color (COLOR.rgb (255,255,255));
+        p.stroke;
+      };    
+    };
+  );
+  
+Section Public
+  - draw pen:PEN <- ( draw pen to (0,0); );
+
+  + load_to_pen pen:PEN <- (
+    (frame_img = -1).if {
+      frame_img := pen.create_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) size (1920,1080) flags 0;
+    } else {
+      PEN.update_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) id frame;
+    };
+  );
+  
+  - use_pen pen:PEN to (x,y:REAL_32) size size:INTEGER <-
+  ( + p:PAINT;
+    + imgw,imgh:INTEGER;
+    + iw, ih:REAL_32;
+    draw_mouse pen;
+    (frame_img != -1).if {
+      (imgw,imgh) := pen.image_size frame_img;
+      (iw, ih) := (size, size * imgh / imgw);
+      p := PAINT.create_pattern (x,y) size (iw,ih) img_id frame_img angle 0 alpha 1;
+      pen.begin_path;
+      pen.rect (x,y) size (imgw,imgh);
+      pen.fill_paint p;
+      pen.fill;
+      p.free;
+    };
+  );
+
+  + streaming_draw_init type:INTEGER <-
+  (
+    (type & 1 = 1).if {
+      
+      draw to <- //Définition de 'draw to'
+      ( + rgb, depth :BOOLEAN;
+        rgb := enable_rgb;
+        depth := enable_depth;
+        ((framemax = 0) | (framecount < framemax)).if {
+          `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+          "timeout!".print;
+          `return -1;
+          }`;
+          init_frames;
+          load_to_pen pen;
+          framecount := framecount + 1;
+          `listener.release(frames);`
+        } else {
+          shut_kinect;
+        };
+        use_pen pen to (x,y) size 1280;
+      ); //FIN 'draw to'
+      
+    } else {
+      
+      draw to <- //Définition de 'draw to'
+      ( + rgb, depth :BOOLEAN;
+        rgb := enable_rgb;
+        depth := enable_depth;
+        ((framemax = 0) | (framecount < framemax)).if {
+          `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+            "timeout!".print;
+            `return -1;
+          }`;
+          init_frames;
+          load_to_pen pen;
+          framecount := framecount + 1;
+          `listener.release(frames);`
+        } else {
+          shut_kinect;
+        };
+        use_pen pen to (x,y) size 512;
+      ); //FIN 'draw to'
+    };
+  );
+
+
+
+
+

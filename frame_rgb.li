@@ -1,0 +1,59 @@
+Section Header
+  + name := FRAME_RGB;
+  
+Section Inherit
+  + parent_frame:Expanded FRAME;
+  
+Section Public
+
+  + behavior_swap <- ( "no behavior_swap function needed in FRAME_RGB.li\n".print; );
+  
+  + img_write <- (
+  	img_write `rgb->data`:NATIVE_ARRAY UINTEGER_8 to "color_pic.ppm";
+  );
+  
+Section Private
+  
+  - img_write data:NATIVE_ARRAY UINTEGER_8 to path:STRING <-
+  ( + dir:DIRECTORY;
+    + f:FILE;
+    dir := FILE_SYSTEM;
+    f := dir.make_file path;
+    (f = NULL).if {
+      "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
+    } else {
+      + to_write :STRING_BUFFER;
+      + height, width, bytes_per_pixel :INTEGER;
+      to_write := STRING_BUFFER.create 4096;
+      height := 1080;
+      width := 1920;
+      bytes_per_pixel := 4;
+      to_write.append "P3\n";
+      f.open;
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      to_write.append "\n255\n";
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      "img_write".println;
+      0.to (4*height*width) do { i:INTEGER;
+        (i%4 = 3).if {
+          to_write.append(data.item (i-1).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-2).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-3).to_string);
+        };
+        (i%20 = 19).if {
+          to_write.append "\n";
+          f.write to_write size (to_write.upper+1);
+          to_write.clear;
+        } else {
+          to_write.append " ";
+          "img_write".println;
+        };
+      };
+    };
+  );
+

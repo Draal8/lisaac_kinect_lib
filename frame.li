@@ -1,0 +1,93 @@
+Section Header
+  + name := FRAME;
+  
+Section Inherit
+  - parent_object:OBJECT := OBJECT;
+  - parent_kinect:KINECT := KINECT;
+
+Section Private
+  - rgb_:INTEGER := 1;		///< enum Type {Color = 1, Ir = 2, Depth = 4}
+  - ir_:INTEGER := 2;
+  - depth_:INTEGER := 4;
+  + kinect:KINECT := KINECT;
+  - kinect_set ki:KINECT <- ( kinect := ki; );
+  
+  - init_frames <-
+    (`libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
+      libfreenect2::Frame *ir = frames[libfreenect2::Frame::Ir];
+      libfreenect2::Frame *depth = frames[libfreenect2::Frame::Depth]`;
+    );
+	
+	- seuillage_hysteresis old_array:NATIVE_ARRAY UINTEGER_32 :NATIVE_ARRAY UINTEGER_32 <-
+    ( + new_array:NATIVE_ARRAY UINTEGER_32;
+      new_array := NATIVE_ARRAY UINTEGER_32.create (512*424);
+      0.to (512*424) do { i:INTEGER;
+        (old_array.item i < 800).if {
+          new_array.put 0 to i;
+        } else {
+          new_array.put (old_array.item i) to i;
+        };
+      };
+      new_array
+    );
+    
+Section Public
+  + frame_img:INTEGER;
+  
+  - create ki:KINECT :SELF<-
+  ( + result:SELF;
+    result := clone;
+    result.kinect_set ki;
+    result
+  );
+  
+  + behavior_swap <-
+  ( "'behavior_swap' function not defined\nFrame is a generic object, pleasse create a specific type of frame\n".print; );
+  + img_write <-
+  ( "'img_write' function not defined\nFrame is a generic object, pleasse create a specific type of frame\n".print; );
+  
+  
+// Main functions to call for quick use
+  - picture_it type:INTEGER <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + viewer_enabled :BOOLEAN;
+    +  rgb, depth :BOOLEAN;
+    serial := "138898540347".to_external;
+    viewer_enabled := TRUE;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    kinect.init_kinect type;
+    kinect.start_kinect;
+    `
+    if (!listener.waitForNewFrame(frames, 1*1000)) { //1 second has passed`;
+      "timeout!".print;
+      `return -1;
+    }`;
+    init_frames;
+    
+    `if (@rgb && @depth) {
+      registration->apply(rgb, depth, &undistorted, &registered);
+    }
+    listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
+    listener.waitForNewFrame(frames, 100)`;
+    kinect.shut_kinect;
+    img_write;
+  );
+  
+  - stream_it type:INTEGER <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + pen :PEN;
+    PAPER.make (1366,768) title "LiBot camera";
+    PAPER.set_animation 1;
+    pen := PAPER.loc_pen;
+    serial := "138898540347".to_external;
+    
+    behavior_swap;
+    streaming_draw_init type;
+    
+    kinect.init_kinect type;
+    kinect.start_kinect;
+    frame_img := kinect.frame_img;
+    PAPER.run Self;
+  );
+  
