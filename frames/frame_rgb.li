@@ -1,0 +1,123 @@
+Section Header
+  + name := FRAME_RGB;
+  
+Section Inherit
+  + parent_frame:Expanded FRAME;
+  
+Section Private
+  + draw pen:PEN to (x,y:REAL_32) <-
+  ( + rgb, depth :BOOLEAN;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    ((framemax = 0) | (framecount < framemax)).if {
+      `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+        "timeout!".print;
+        `return -1;
+      }`;
+      init_frames;
+      load_to_pen pen;
+      framecount := framecount + 1;
+      `listener.release(frames);`
+    } else {
+      shut_kinect;
+    };
+    use_pen pen to (x,y) size 1280;
+  );
+  
+Section Public
+  // Main functions to call for quick use
+  - picture_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + viewer_enabled :BOOLEAN;
+    +  rgb, depth :BOOLEAN;
+    serial := "138898540347".to_external;
+    viewer_enabled := TRUE;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    kinect.init_kinect rgb_; //=1
+    kinect.start_kinect;
+    `
+    if (!listener.waitForNewFrame(frames, 1*1000)) { //1 second has passed`;
+      "timeout!".print;
+      `return -1;
+    }`;
+    init_frames;
+    
+    `if (@rgb && @depth) {
+      registration->apply(rgb, depth, &undistorted, &registered);
+    }
+    listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
+    listener.waitForNewFrame(frames, 100)`;
+    kinect.shut_kinect;
+    img_write;
+  );
+  
+  - stream_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + pen :PEN;
+    PAPER.make (1366,768) title "LiBot camera";
+    PAPER.set_animation 1;
+    pen := PAPER.loc_pen;
+    serial := "138898540347".to_external;
+    
+    kinect.init_kinect rgb_; //=1
+    kinect.start_kinect;
+    frame_img := kinect.frame_img;
+    PAPER.run Self;
+  );
+  
+  + img_write <- (
+    img_write `rgb->data`:NATIVE_ARRAY UINTEGER_8 to "color_pic.ppm";
+  );
+  
+  + load_to_pen pen:PEN <- (
+    (frame_img = -1).if {
+      frame_img := pen.create_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) size (1920,1080) flags 0;
+    } else {
+      PEN.update_image_bgra (`rgb->data`:NATIVE_ARRAY UINTEGER_8) id frame_img;
+    };
+  );
+  
+Section Private
+  
+  - img_write data:NATIVE_ARRAY UINTEGER_8 to path:STRING <-
+  ( + dir:DIRECTORY;
+    + f:FILE;
+    dir := FILE_SYSTEM;
+    f := dir.make_file path;
+    (f = NULL).if {
+      "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
+    } else {
+      + to_write :STRING_BUFFER;
+      + height, width, bytes_per_pixel :INTEGER;
+      to_write := STRING_BUFFER.create 4096;
+      height := 1080;
+      width := 1920;
+      bytes_per_pixel := 4;
+      to_write.append "P3\n";
+      f.open;
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      to_write.append "\n255\n";
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      0.to (4*height*width) do { i:INTEGER;
+        (i%4 = 3).if {
+          to_write.append(data.item (i-1).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-2).to_string);
+          to_write.append " ";
+          to_write.append(data.item (i-3).to_string);
+        };
+        (i%20 = 19).if {
+          to_write.append "\n";
+          f.write to_write size (to_write.upper+1);
+          to_write.clear;
+        } else {
+          to_write.append " ";
+        };
+      };
+    };
+  );
+

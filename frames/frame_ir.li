@@ -1,0 +1,159 @@
+Section Header
+  + name := FRAME_IR;
+  
+Section Inherit
+  + parent_frame:Expanded FRAME;
+  
+Section Private
+  
+  - draw pen:PEN to (x,y:REAL_32) <-
+  ( + rgb, depth :BOOLEAN;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    ((framemax = 0) | (framecount < framemax)).if {
+      `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+      "timeout!".print;
+      `return -1;
+      }`;
+      init_frames;
+      load_to_pen pen;
+      framecount := framecount + 1;
+      `listener.release(frames);`
+    } else {
+      shut_kinect;
+    };
+    use_pen pen to (x,y) size 512;
+  );
+  
+  - img_write data:NATIVE_ARRAY REAL_32 to path:STRING <-
+  ( + dir:DIRECTORY;
+    + f:FILE;
+    dir := FILE_SYSTEM;
+    f := dir.make_file path;
+    (f = NULL).if {
+      "\': File exists, cannot create file.\n".print; //Essayer de prendre en compte si l'image existe déjà;
+    } else {
+      + to_write :STRING_BUFFER;
+      + height, width, bytes_per_pixel :INTEGER;
+      + max:REAL_32;
+      to_write := STRING_BUFFER.create 4096;
+      height := 424;
+      width := 512;
+      bytes_per_pixel := 4;
+      to_write.clear;
+      f.open;
+      to_write.append "P2\n";
+      to_write.append(width.to_string);
+      to_write.append " ";
+      to_write.append(height.to_string);
+      //Des fois J'ai une segfault ici
+      0.to (height*width) do { i:INTEGER;
+        (data.item i > max).if {
+          max := data.item i;
+        };
+      };
+      //
+      ((max.floor) > 65535).if {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      }.elseif { max.floor < 0 } then {
+        to_write.append "\n65535\n";
+        "max : ".println;
+        max.floor.println;
+      } else {
+        "max : ".println;
+        max.floor.println;
+        to_write.append "\n";
+        to_write.append (max.floor.to_string);
+        to_write.append "\n";
+      };
+      f.write to_write size (to_write.upper+1);
+      to_write.clear;
+      0.to (height*width) do { i:INTEGER;
+        ((data.item i).round < 0).if {
+          to_write.append "0";
+        } else {
+          to_write.append((data.item i).round.to_string);
+        };
+        (i%11 = 10).if {
+          f.write to_write size (to_write.upper+1);
+          to_write.clear;
+          to_write.append "\n";
+        } else {
+          to_write.append " ";
+        };
+      };
+      to_write.clear;
+    };
+  );
+  
+Section Public
+  // Main functions to call for quick use
+  - picture_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + viewer_enabled :BOOLEAN;
+    +  rgb, depth :BOOLEAN;
+    serial := "138898540347".to_external;
+    viewer_enabled := TRUE;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    kinect.init_kinect ir_; //=2
+    kinect.start_kinect;
+    `
+    if (!listener.waitForNewFrame(frames, 1*1000)) { //1 second has passed`;
+      "timeout!".print;
+      `return -1;
+    }`;
+    init_frames;
+    
+    `if (@rgb && @depth) {
+      registration->apply(rgb, depth, &undistorted, &registered);
+    }
+    listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
+    listener.waitForNewFrame(frames, 100)`;
+    kinect.shut_kinect;
+    img_write;
+  );
+  
+  - stream_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + pen :PEN;
+    PAPER.make (1366,768) title "LiBot camera";
+    PAPER.set_animation 1;
+    pen := PAPER.loc_pen;
+    serial := "138898540347".to_external;
+    
+    kinect.init_kinect ir_; //=2
+    kinect.start_kinect;
+    frame_img := kinect.frame_img;
+    PAPER.run Self;
+  );
+  
+  //graphics
+  + load_to_pen pen:PEN <- (
+      + frame_data:NATIVE_ARRAY UINTEGER_8;
+      + native_data:NATIVE_ARRAY REAL_32;
+      + temp:REAL_32;
+      + temp_8:UINTEGER_8;
+      frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
+      native_data := `ir->data`:NATIVE_ARRAY REAL_32;
+      0.to (217088) do { i:INTEGER;
+        temp := native_data.item i;
+        temp_8 := (temp.floor) >> 4;
+        frame_data.put temp_8 to (i*4);
+        frame_data.put temp_8 to (i*4+1);
+        frame_data.put temp_8 to (i*4+2);
+        frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
+      };
+      (frame_img = -1).if {
+        frame_img := pen.create_image_bgra (frame_data) size (512,424) flags 0;
+      } else {
+        PEN.update_image_bgra (frame_data) id frame_img;
+      };
+    );
+  
+  + img_write <- (
+    img_write `ir->data`:NATIVE_ARRAY REAL_32 to "ir_pic.pgm";
+  );
+

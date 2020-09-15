@@ -3,50 +3,100 @@ Section Header
   
 Section Inherit
   + parent_frame:Expanded FRAME;
+  //+ parent_frame_ir:Expanded FRAME_IR;
+  
+Section Private
+  + draw pen:PEN to (x,y:REAL_32) <-
+  ( + rgb, depth :BOOLEAN;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    ((framemax = 0) | (framecount < framemax)).if {
+      `if (!listener.waitForNewFrame(frames, 10*1000)) { // 10 seconds`;
+      "timeout!".print;
+      `return -1;
+      }`;
+      init_frames;
+      load_to_pen pen;
+      framecount := framecount + 1;
+      `listener.release(frames);`
+    } else {
+      shut_kinect;
+    };
+    use_pen pen to (x,y) size 512;
+  );
   
 Section Public
-  
-  + behavior_swap <- (
-  /*(type = 2).if {
-    load_to_pen <- (
-        load_sobel pen;
-      );
-      
-    }.elseif {type = 1} then {*/
-      load_to_pen <- (
-        load_classique pen;
-      );
-    //}
+  // Main functions to call for quick use
+  - picture_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + viewer_enabled :BOOLEAN;
+    +  rgb, depth :BOOLEAN;
+    serial := "138898540347".to_external;
+    viewer_enabled := TRUE;
+    rgb := enable_rgb;
+    depth := enable_depth;
+    kinect.init_kinect depth_; //=4
+    kinect.start_kinect;
+    `
+    if (!listener.waitForNewFrame(frames, 1*1000)) { //1 second has passed`;
+      "timeout!".print;
+      `return -1;
+    }`;
+    init_frames;
+    
+    `if (@rgb && @depth) {
+      registration->apply(rgb, depth, &undistorted, &registered);
+    }
+    listener.release(frames); //prendre les frames avant qu'elles ne disparaissent (je crois)
+    listener.waitForNewFrame(frames, 100)`;
+    kinect.shut_kinect;
+    img_write;
   );
+  
+  - stream_it <-
+  ( + serial :NATIVE_ARRAY CHARACTER;
+    + pen :PEN;
+    PAPER.make (1366,768) title "LiBot camera";
+    PAPER.set_animation 1;
+    pen := PAPER.loc_pen;
+    serial := "138898540347".to_external;
+    
+    kinect.init_kinect depth_; //=4
+    kinect.start_kinect;
+    frame_img := kinect.frame_img;
+    PAPER.run Self;
+  );
+  
+  //graphics
+  + load_to_pen pen:PEN <- ( load_classique pen; );
 
   + load_sobel pen:PEN <- (
     + frame_data:NATIVE_ARRAY UINTEGER_8;
-    + native_data, final_array:NATIVE_ARRAY REAL_32;
+    + native_data, transformed_array:NATIVE_ARRAY REAL_32;
     + temp:REAL_32;
     + temp_8:UINTEGER_8;
     frame_data := NATIVE_ARRAY UINTEGER_8.create (868352); //4*512*424
     native_data := `depth->data`:NATIVE_ARRAY REAL_32;
+    transformed_array := sobel_r native_data;
+    transformed_array := seuillage_hysteresis_r transformed_array;
     0.to (217088) do { i:INTEGER;
-      temp := native_data.item i;
+      temp := transformed_array.item i;
       temp_8 := (temp.floor) >> 4;
-      //temp_8.print;
-      //" ".print;
       frame_data.put temp_8 to (i*4);
       frame_data.put temp_8 to (i*4+1);
       frame_data.put temp_8 to (i*4+2);
       frame_data.put 255 to (i*4+3); //Il faut mettre 255 en alpha sinon l'image est transparente
     };
-    final_array := sobel frame_data;
-    final_array := seuillage_hysteresis final_array;
-    (frame = -1).if {
-      frame := pen.create_image_bgra (final_array) size (512,424) flags 0;
+    
+    (frame_img = -1).if {
+      frame_img := pen.create_image_bgra (frame_data) size (512,424) flags 0;
     } else {
-      PEN.update_image_bgra (final_array) id frame;
+      PEN.update_image_bgra (frame_data) id frame_img;
     };
   );
-
+  
   + load_classique pen:PEN <- (
-	+ frame_data:NATIVE_ARRAY UINTEGER_8;
+    + frame_data:NATIVE_ARRAY UINTEGER_8;
     + native_data:NATIVE_ARRAY REAL_32;
     + temp:REAL_32;
     + temp_8:UINTEGER_8;
@@ -55,8 +105,6 @@ Section Public
     0.to (217088) do { i:INTEGER;
       temp := native_data.item i;
       temp_8 := (temp.floor) >> 4;
-      //temp_8.print;
-      //" ".print;
       frame_data.put temp_8 to (i*4);
       frame_data.put temp_8 to (i*4+1);
       frame_data.put temp_8 to (i*4+2);
@@ -69,14 +117,11 @@ Section Public
     };
   );
   
-  
-
   + img_write <- (
-  	img_write `depth->data`:NATIVE_ARRAY REAL_32 to "depth_pic.pgm";
+    img_write `depth->data`:NATIVE_ARRAY REAL_32 to "depth_pic.pgm";
   );
 
 Section Private
-
   - img_write data:NATIVE_ARRAY REAL_32 to path:STRING <-
   ( + dir:DIRECTORY;
     + f:FILE;
@@ -138,7 +183,7 @@ Section Private
       };
       to_write.clear;
     };
-  );
+  ); //a priori deja dans frame_ir.li
   
   // (-1  0  1)      (-1  -2  -1)
   // (-2  0  2)  et  ( 0   0   0)
@@ -147,13 +192,33 @@ Section Private
   ( + new_array:NATIVE_ARRAY UINTEGER_32;
     + gx,gy:INTEGER;
     new_array := NATIVE_ARRAY UINTEGER_32.create (512*424);
-    0.to (512*424) do { i:INTEGER;
+    0.to (512*424) do { i:INTEGER;  //parcous de la frame
       + racine:INTEGER;
-      ((i > 512) & (i % 512 != 0) & (i % 512 != 511) & (i < 512*423)).if {
+      ((i > 512) & (i % 512 != 0) & (i % 512 != 511) & (i < 512*423)).if {  //tant qu'on ne touche pas les bords
         gx := data.item (i-513) + (data.item (i-1) << 1) + data.item (i+511);
         gx := 1 + data.item (i-511) + (data.item (i+1) << 1) + data.item (i+513) - gx;
         gy := data.item (i-513) + (data.item (i-512) << 1) + data.item (i-511);
         gy := 1 + data.item (i+513) + (data.item (i+512) << 1) + data.item (i+511) - gy;
+        racine := ((gx*gx + gy*gy).sqrt);
+        new_array.put racine to i;
+      } else {  //si on touche les bords
+        new_array.put (data.item i) to i;
+      };
+    };
+    new_array
+  );
+
+  + sobel_r data:NATIVE_ARRAY REAL_32 :NATIVE_ARRAY REAL_32 <-
+  ( + new_array:NATIVE_ARRAY REAL_32;
+    + gx,gy:REAL_32;
+    new_array := NATIVE_ARRAY REAL_32.create (512*424);
+    0.to (512*424) do { i:INTEGER;
+      + racine:REAL_32;
+      ((i > 512) & (i % 512 != 0) & (i % 512 != 511) & (i < 512*423)).if {
+        gx := data.item (i-513) + (data.item (i-1) *2) + data.item (i+511);
+        gx := 1.0 + data.item (i-511) + (data.item (i+1) *2) + data.item (i+513) - gx;
+        gy := data.item (i-513) + (data.item (i-512) *2) + data.item (i-511);
+        gy := 1.0 + data.item (i+513) + (data.item (i+512) *2) + data.item (i+511) - gy;
         racine := ((gx*gx + gy*gy).sqrt);
         new_array.put racine to i;
       } else {
